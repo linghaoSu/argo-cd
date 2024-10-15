@@ -752,10 +752,10 @@ status:
         reason: SchedulingGated
           `
 
-    const pod = jsYaml.load(podYaml);
+        const pod = jsYaml.load(podYaml);
 
-    const {reason} = getPodStateReason(pod as State);
+        const {reason} = getPodStateReason(pod as State);
 
-    expect(reason).toBe('SchedulingGated');
+        expect(reason).toBe('SchedulingGated');
     });
 });
