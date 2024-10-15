@@ -267,7 +267,7 @@ spec:
 
   workloadSelector:
     labels:
-      app.kubernetes.io/name: echo-2"
+      app.kubernetes.io/name: echo-2
 `)
 )
 
