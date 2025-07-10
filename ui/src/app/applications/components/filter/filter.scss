@@ -115,6 +115,8 @@ $slate: #191826;
     display: flex;
     flex-wrap: wrap;
     margin-top: 2em;
+    position: relative;
+    
     &__toggle {
         display: none;
         cursor: pointer;
@@ -149,6 +151,7 @@ $slate: #191826;
         height: 1.5em;
         margin-bottom: 0em;
         margin-top: -1.5em;
+        position: absolute;
 
         .argo-button {
             margin-left: auto;
