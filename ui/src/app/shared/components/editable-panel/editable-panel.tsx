@@ -1,6 +1,6 @@
 import {ErrorNotification, HelpIcon, NotificationType} from 'argo-ui';
 import * as classNames from 'classnames';
-import React, {type ReactNode, useCallback, useContext, useEffect, useRef, useState, Fragment} from 'react';
+import React, {type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, Fragment} from 'react';
 import {Form, type FormApi} from 'react-form';
 import {helpTip} from '../../../applications/components/utils';
 import {Context} from '../../context';
@@ -76,7 +76,12 @@ function EditablePanel<T extends {} = {}>({
         setIsCollapsed(collapsedProp);
     }, [collapsedProp]);
 
-    useEffect(() => {
+    // useLayoutEffect (not useEffect) is required here to preserve the synchronous timing of the
+    // former UNSAFE_componentWillReceiveProps. In noReadonlyMode the outer form round-trips through
+    // props on every keystroke (see application-create-panel), and an async useEffect allows the
+    // browser to process additional keystrokes before the resync runs, so setAllValues ends up
+    // overwriting the user's in-flight edits with a stale snapshot (see issue #27157).
+    useLayoutEffect(() => {
         const initialValuesString = JSON.stringify(initialValuesRef.current);
         const valuesString = JSON.stringify(values);
 

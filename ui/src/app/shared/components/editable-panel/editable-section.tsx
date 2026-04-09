@@ -1,5 +1,5 @@
 import {ErrorNotification, NotificationType} from 'argo-ui';
-import React, {useState, useRef, useEffect, Fragment, useCallback} from 'react';
+import React, {useState, useRef, useLayoutEffect, Fragment, useCallback} from 'react';
 import type {FormApi, FormState} from 'react-form';
 import {Form} from 'react-form';
 import {ContextApis} from '../../context';
@@ -52,7 +52,12 @@ function EditableSection<T extends {} = {}>({
     const formApiRef = useRef<FormApi | null>(null);
     const prevValuesRef = useRef<T>(values);
 
-    useEffect(() => {
+    // useLayoutEffect (not useEffect) is required here to preserve the synchronous timing of the
+    // former UNSAFE_componentWillReceiveProps. In noReadonlyMode the outer form round-trips through
+    // props on every keystroke (see application-create-panel), and an async useEffect allows the
+    // browser to process additional keystrokes before the resync runs, so setAllValues ends up
+    // overwriting the user's in-flight edits with a stale snapshot (see issue #27157).
+    useLayoutEffect(() => {
         if (formApiRef.current && JSON.stringify(prevValuesRef.current) !== JSON.stringify(values) && noReadonlyMode) {
             formApiRef.current.setAllValues(values);
         }
