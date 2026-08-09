@@ -2,6 +2,7 @@
 
 const path = require('path');
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const {codecovWebpackPlugin} = require("@codecov/webpack-plugin");
@@ -54,6 +55,12 @@ const tsxRule = reactCompiler
           test: /\.tsx?$/,
           ...esbuildTsxLoader
       };
+
+// MiniCssExtractPlugin does not support HMR for styles, so dev keeps
+// style-loader. In prod the CSS becomes real stylesheets: the browser can
+// fetch them in parallel with the JS instead of waiting for it to execute,
+// and they get their own cache entry.
+const styleLoader = isProd ? MiniCssExtractPlugin.loader : 'style-loader';
 
 const proxyConf = {
     target: process.env.ARGOCD_API_URL || 'http://localhost:8080',
@@ -146,7 +153,7 @@ const config = {
             {
                 test: /\.scss$/,
                 use: [
-                    'style-loader',
+                    styleLoader,
                     {
                         loader: 'css-loader',
                         options: { url: false, import: false }
@@ -166,7 +173,7 @@ const config = {
             {
                 test: /\.css$/,
                 use: [
-                    'style-loader',
+                    styleLoader,
                     {
                         loader: 'css-loader',
                         options: { url: false, import: false }
@@ -184,7 +191,14 @@ const config = {
                 version: process.env.ARGO_VERSION || 'latest'
             })
         }),
-        new HtmlWebpackPlugin({ template: 'src/app/index.html' }),
+        new HtmlWebpackPlugin({
+            template: 'src/app/index.html',
+            // Put the extracted stylesheets ahead of the deferred scripts so the
+            // browser starts fetching them immediately rather than after the
+            // script tags are parsed.
+            scriptLoading: 'defer',
+            inject: 'head',
+        }),
         // Break the argo-ui barrel -> LogsViewer -> xterm dependency chain; see
         // src/app/shims/logs-viewer.tsx. The counter guards against this
         // silently no-op'ing if argo-ui ever moves the file, which would put
@@ -263,6 +277,15 @@ const config = {
 };
 
 if (isProd) {
+    config.plugins.push(new MiniCssExtractPlugin({
+        filename: '[name].[contenthash].css',
+        chunkFilename: '[name].[contenthash].chunk.css',
+        // Styles here are largely independent component sheets; enforcing a
+        // single global order across every import chain is not achievable and
+        // the warning is noise. Verified visually against the style-loader
+        // build before enabling.
+        ignoreOrder: true,
+    }));
     config.performance = {
         hints: 'error',
         // Max size is 6MB before gzip.
