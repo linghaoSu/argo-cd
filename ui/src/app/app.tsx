@@ -4,20 +4,16 @@ import * as React from 'react';
 import {Helmet} from 'react-helmet';
 import {Redirect, Route, RouteComponentProps, Router, Switch} from 'react-router';
 import {Subscription} from 'rxjs';
-import applications from './applications';
-import help from './help';
-import login from './login';
-import settings from './settings';
 import {Layout, ThemeWrapper} from './shared/components/layout/layout';
 import {Page} from './shared/components';
 import {Spinner} from './shared/components';
+import {lazyRoute} from './shared/components/lazy-route';
 import {VersionPanel} from './shared/components/version-info/version-info-panel';
 import {AuthSettingsCtx, Provider} from './shared/context';
 import {services} from './shared/services';
 import requests from './shared/services/requests';
 import {hashCode, isSSOConfigured} from './shared/utils';
 import {Banner} from './ui-banner/ui-banner';
-import userInfo from './user-info';
 import {AuthSettings, UserInfo} from './shared/models';
 import {SystemLevelExtension} from './shared/services/extensions-service';
 
@@ -29,14 +25,31 @@ requests.setBaseHRef(base);
 
 type Routes = {[path: string]: {component: React.ComponentType<RouteComponentProps<any>>; noLayout?: boolean}};
 
+// Top-level routes are split one chunk per route. `/applications` and
+// `/applicationsets` share a component, so they resolve to the same chunk.
+/*
+ * The applications and settings containers are route shells: a Switch plus a
+ * handful of lazyRoute declarations, ~2-3 KB each. Splitting them out would put
+ * a whole round trip between the entry and the page the user actually asked
+ * for -- entry -> shell -> page -- so they are imported eagerly and only the
+ * pages underneath them are split. The three leaf routes below have no such
+ * shell and are split directly.
+ */
+import applications from './applications';
+import settings from './settings';
+
+const LoginRoute = lazyRoute(() => import(/* webpackChunkName: "login" */ './login').then(m => ({default: m.default.component as any})));
+const UserInfoRoute = lazyRoute(() => import(/* webpackChunkName: "user-info" */ './user-info').then(m => ({default: m.default.component})));
+const HelpRoute = lazyRoute(() => import(/* webpackChunkName: "help" */ './help').then(m => ({default: m.default.component})));
+
 const routes: Routes = {
-    '/login': {component: login.component as any, noLayout: true},
+    '/login': {component: LoginRoute, noLayout: true},
     '/applications': {component: applications.component},
     // TODO: Uncomment when ApplicationSet details page is fully implemented
     '/applicationsets': {component: applications.component},
     '/settings': {component: settings.component},
-    '/user-info': {component: userInfo.component},
-    '/help': {component: help.component}
+    '/user-info': {component: UserInfoRoute},
+    '/help': {component: HelpRoute}
 };
 
 interface NavItem {

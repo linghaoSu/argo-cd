@@ -2,7 +2,8 @@ import {DataLoader, DropDown, Tab, Tabs} from 'argo-ui';
 import * as React from 'react';
 import {useState} from 'react';
 import {BehaviorSubject} from 'rxjs';
-import {EventsList, YamlEditor} from '../../../shared/components';
+import {EventsList} from '../../../shared/components';
+import {YamlEditor} from '../../../shared/components/yaml-editor/yaml-editor';
 import * as models from '../../../shared/models';
 import {ErrorBoundary} from '../../../shared/components/error-boundary/error-boundary';
 import {AppContext, Context} from '../../../shared/context';
@@ -18,7 +19,9 @@ import {ApplicationResourcesDiff} from '../application-resources-diff/applicatio
 import {ApplicationSummary} from '../application-summary/application-summary';
 import {AppSetResourceNodePreview} from './appset-resource-node-preview';
 import {PodsLogsViewer} from '../pod-logs-viewer/pod-logs-viewer';
-import {PodTerminalViewer} from '../pod-terminal-viewer/pod-terminal-viewer';
+// Split out on its own: the terminal is the only consumer of xterm (~85 KB
+// gzip of vendor code), and most users never open this tab.
+const PodTerminalViewer = React.lazy(() => import(/* webpackChunkName: "pod-terminal" */ '../pod-terminal-viewer/pod-terminal-viewer').then(m => ({default: m.PodTerminalViewer})));
 import {ResourceIcon} from '../resource-icon';
 import {ResourceLabel} from '../resource-label';
 import * as AppUtils from '../utils';
@@ -143,15 +146,17 @@ export const ResourceDetails = (props: ResourceDetailsProps) => {
                         icon: 'fa fa-terminal',
                         title: 'Terminal',
                         content: (
-                            <PodTerminalViewer
-                                applicationName={application.metadata.name}
-                                applicationNamespace={application.metadata.namespace}
-                                projectName={application.spec.project}
-                                podState={podState}
-                                selectedNode={selectedNode}
-                                containerName={AppUtils.getContainerName(podState, activeContainer)}
-                                onClickContainer={onClickContainer}
-                            />
+                            <React.Suspense fallback={<div style={{padding: '1em'}} />}>
+                                <PodTerminalViewer
+                                    applicationName={application.metadata.name}
+                                    applicationNamespace={application.metadata.namespace}
+                                    projectName={application.spec.project}
+                                    podState={podState}
+                                    selectedNode={selectedNode}
+                                    containerName={AppUtils.getContainerName(podState, activeContainer)}
+                                    onClickContainer={onClickContainer}
+                                />
+                            </React.Suspense>
                         )
                     }
                 ]);

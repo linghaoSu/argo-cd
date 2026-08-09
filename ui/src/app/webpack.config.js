@@ -1,5 +1,6 @@
 'use strict;';
 
+const path = require('path');
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
@@ -61,6 +62,30 @@ const proxyConf = {
     changeOrigin: !!process.env.ARGOCD_API_URL
 };
 
+// Redirects argo-ui's `./logs-viewer/logs-viewer` import (and only that one) to
+// a local stub, so xterm is not pulled into the entry bundle. Fails the build
+// if it never matches, rather than silently regressing the bundle size.
+let logsViewerShimHits = 0;
+const logsViewerShim = new webpack.NormalModuleReplacementPlugin(/^\.\/logs-viewer\/logs-viewer$/, resource => {
+    if (resource.context.endsWith(path.join('argo-ui', 'src', 'components'))) {
+        logsViewerShimHits++;
+        resource.request = path.resolve(__dirname, 'shims', 'logs-viewer.tsx');
+    }
+});
+
+const assertLogsViewerShimApplied = {
+    apply(compiler) {
+        compiler.hooks.done.tap('AssertLogsViewerShimApplied', () => {
+            if (logsViewerShimHits === 0) {
+                throw new Error(
+                    'logs-viewer shim never matched -- argo-ui may have moved the module. ' +
+                    'xterm is likely back in the entry bundle; update the regex in webpack.config.js.'
+                );
+            }
+        });
+    }
+};
+
 const config = {
     entry: './src/app/index.tsx',
     output: {
@@ -70,6 +95,28 @@ const config = {
         clean: true
     },
     cache: { type: 'filesystem' },
+    optimization: {
+        // Keep the webpack runtime in its own file so a route chunk change does
+        // not invalidate vendors.
+        runtimeChunk: 'single',
+        splitChunks: {
+            chunks: 'all',
+            // Backstop against a long tail of tiny files: anything below this
+            // is merged back into its parent rather than emitted separately.
+            // Note this does not apply to explicit import() calls, which always
+            // emit a chunk -- those are grouped by sharing webpackChunkName.
+            minSize: 20000,
+            maxAsyncRequests: 8,
+            cacheGroups: {
+                vendors: {
+                    test: /[\\/]node_modules[\\/]/,
+                    name: 'vendors',
+                    chunks: 'initial',
+                    priority: -5
+                }
+            }
+        }
+    },
 
     resolve: {
         extensions: ['.ts', '.tsx', '.js', '.json'],
@@ -138,6 +185,13 @@ const config = {
             })
         }),
         new HtmlWebpackPlugin({ template: 'src/app/index.html' }),
+        // Break the argo-ui barrel -> LogsViewer -> xterm dependency chain; see
+        // src/app/shims/logs-viewer.tsx. The counter guards against this
+        // silently no-op'ing if argo-ui ever moves the file, which would put
+        // xterm back into the entry bundle with no visible error.
+        logsViewerShim,
+        assertLogsViewerShimApplied,
+        new webpack.IgnorePlugin({resourceRegExp: /^\.\/locale$/, contextRegExp: /moment$/}),
         new CopyWebpackPlugin({
             patterns: [{
                     from: 'src/assets',

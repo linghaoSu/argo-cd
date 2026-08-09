@@ -1,9 +1,27 @@
 import * as React from 'react';
 import {Route, RouteComponentProps, Switch} from 'react-router';
-import {ApplicationDetails} from './application-details/application-details';
-import {ApplicationFullscreenLogs} from './application-fullscreen-logs/application-fullscreen-logs';
-import {ApplicationsList} from './applications-list/applications-list';
-import {ApplicationSetsList} from './applications-list/application-sets-list';
+
+import {lazyRoute} from '../../shared/components/lazy-route';
+
+/*
+ * The two views under this route are both large (~3.4k and ~2.1k lines with
+ * their subtrees) and share almost no code, so they get separate chunks: a user
+ * on the list page should not pay for the details page.
+ *
+ * The fullscreen logs view is small on its own but pulls in the same log
+ * viewer as the details page, so it shares that chunk rather than adding a
+ * third request.
+ */
+const ApplicationsList = lazyRoute(() => import(/* webpackChunkName: "applications-list" */ './applications-list/applications-list').then(m => ({default: m.ApplicationsList})));
+const ApplicationSetsList = lazyRoute(() =>
+    import(/* webpackChunkName: "applications-list" */ './applications-list/application-sets-list').then(m => ({default: m.ApplicationSetsList}))
+);
+const ApplicationDetails = lazyRoute(() =>
+    import(/* webpackChunkName: "application-details" */ './application-details/application-details').then(m => ({default: m.ApplicationDetails}))
+);
+const ApplicationFullscreenLogs = lazyRoute(() =>
+    import(/* webpackChunkName: "application-details" */ './application-fullscreen-logs/application-fullscreen-logs').then(m => ({default: m.ApplicationFullscreenLogs}))
+);
 
 export const ApplicationsContainer = (props: RouteComponentProps<any>) => {
     // Determine objectListKind from the route path
