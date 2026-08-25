@@ -26,14 +26,19 @@ export const resourceKey = (state: {group?: string; kind: string; namespace?: st
 
 export const fieldKey = (state: {group?: string; kind: string; namespace?: string; name: string}, pointer: string): FieldKey => `${resourceKey(state)}|${pointer}`;
 
-export interface IgnoreDifferencesPanelProps {
+export interface IgnoreDifferencesEditorProps {
     application: models.Application;
     states: models.ResourceDiff[];
-    shown: boolean;
-    onClose: (saved: boolean) => void;
-    // selection lifted to the diff view so fields can also be picked from the diff gutter
+    // selection lifted to the parent so fields can also be picked from a diff view
     selection: Map<FieldKey, SelectedField>;
     onSelectionChange: (selection: Map<FieldKey, SelectedField>) => void;
+    // called after a successful save
+    onSaved?: () => void;
+    // renders the editor around a save/cancel header (used by the sliding panel variant);
+    // when omitted the editor renders its own inline save button
+    renderHeader?: (header: React.ReactNode) => void;
+    // limit the field list to these resources (keys from resourceKey()); undefined shows all
+    visibleResources?: Set<string>;
 }
 
 interface ResourceGroup {
@@ -53,10 +58,9 @@ function suggestManager(state: models.ResourceDiff): string {
     return '';
 }
 
-// Panel that lets the user pick changed fields from the current diff, choose the rule type for each
-// field, manage existing rules, and save everything to Application.spec.ignoreDifferences (issue #29330).
-export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
-    const {application, states, shown, onClose, selection, onSelectionChange} = props;
+// hook holding all editor state and derived data, shared by the tab view and the sliding panel
+export function useIgnoreDifferencesEditor(props: IgnoreDifferencesEditorProps) {
+    const {application, states, selection, onSelectionChange, onSaved} = props;
     const appContext = useContext(Context);
     const [customPointers, setCustomPointers] = useState<Map<string, string>>(new Map());
     const [customInputFor, setCustomInputFor] = useState<string>('');
@@ -158,7 +162,9 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
             onSelectionChange(new Map());
             setCustomPointers(new Map());
             setExistingRules(null);
-            onClose(true);
+            if (onSaved) {
+                onSaved();
+            }
         } catch (e) {
             appContext.notifications.show({
                 content: <ErrorNotification title='Unable to save ignore differences' e={e} />,
@@ -192,31 +198,56 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
 
     const canSave = !saving && (selectedCount > 0 || existingChanged) && invalidCustom.length === 0 && !missingManager;
 
+    return {
+        groups,
+        setField,
+        selectSuggested,
+        selectedCount,
+        invalidCustom,
+        missingManager,
+        existingChanged,
+        effectiveExistingRules,
+        removeExistingRule,
+        removeExistingEntry,
+        resetExisting: () => setExistingRules(null),
+        customPointers,
+        setCustomPointers,
+        customInputFor,
+        setCustomInputFor,
+        preview,
+        save,
+        saving,
+        canSave
+    };
+}
+
+export type IgnoreDifferencesEditorState = ReturnType<typeof useIgnoreDifferencesEditor>;
+
+// The editor body: field selection with rule types, existing rules management and spec preview.
+export const IgnoreDifferencesEditor = (props: IgnoreDifferencesEditorProps & {editor: IgnoreDifferencesEditorState; hideFieldList?: boolean}) => {
+    const {selection, editor} = props;
+    const {
+        groups,
+        setField,
+        invalidCustom,
+        missingManager,
+        effectiveExistingRules,
+        removeExistingRule,
+        removeExistingEntry,
+        existingChanged,
+        resetExisting,
+        customPointers,
+        setCustomPointers,
+        customInputFor,
+        setCustomInputFor,
+        preview
+    } = editor;
+    const visibleGroups = props.visibleResources ? groups.filter(g => props.visibleResources.has(g.key)) : groups;
     return (
-        <SlidingPanel
-            isShown={shown}
-            onClose={() => onClose(false)}
-            header={
-                <div>
-                    <button className='argo-button argo-button--base' disabled={!canSave} onClick={save}>
-                        Save ignore differences
-                    </button>{' '}
-                    <button className='argo-button argo-button--base-o' onClick={() => onClose(false)}>
-                        Cancel
-                    </button>
-                </div>
-            }>
-            <div className='application-resources-diff__ignore-editor'>
-                <h4>Ignore differences</h4>
-                <p>
-                    Select changed fields (here or directly in the diff gutter), pick a rule type per field, and save them to <code>spec.ignoreDifferences</code> of this
-                    Application. Saved rules take effect after the diff is recalculated on the next refresh.
-                </p>
-                <button className='argo-button argo-button--base-o' onClick={selectSuggested}>
-                    Select suggested fields
-                </button>
-                {groups.length === 0 && <p>No field-level differences detected.</p>}
-                {groups.map(group => (
+        <div className='application-resources-diff__ignore-editor'>
+            {!props.hideFieldList && visibleGroups.length === 0 && <p>No field-level differences detected.</p>}
+            {!props.hideFieldList &&
+                visibleGroups.map(group => (
                     <div key={group.key} className='white-box' style={{marginTop: '1em'}}>
                         <p style={{fontWeight: 'bold'}}>{group.label}</p>
                         {group.paths.map(path => {
@@ -283,56 +314,97 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
                         )}
                     </div>
                 ))}
-                {invalidCustom.length > 0 && (
-                    <p style={{color: 'red'}}>
-                        Invalid JSON pointer(s): {invalidCustom.join(', ')}. Pointers must start with <code>/</code>.
-                    </p>
-                )}
-                {missingManager && <p style={{color: 'red'}}>Each managed fields manager rule needs a manager name.</p>}
-                <div className='white-box' style={{marginTop: '1em'}}>
-                    <p style={{fontWeight: 'bold'}}>Existing rules</p>
-                    {effectiveExistingRules.length === 0 && <p>This application has no ignore differences rules yet.</p>}
-                    {effectiveExistingRules.map((rule, index) => (
-                        <div key={index} className='application-resources-diff__ignore-editor__existing-rule'>
-                            <div>
-                                <code>
-                                    {rule.group || '""'}/{rule.kind}
-                                    {rule.namespace ? `/${rule.namespace}` : ''}
-                                    {rule.name ? `/${rule.name}` : ''}
-                                </code>{' '}
-                                <a title='Remove this rule' onClick={() => removeExistingRule(index)}>
-                                    <i className='fa fa-times' /> remove rule
-                                </a>
-                            </div>
-                            <ul>
-                                {(['jsonPointers', 'jqPathExpressions', 'managedFieldsManagers'] as const).flatMap(list =>
-                                    (rule[list] || []).map(entry => (
-                                        <li key={`${list}:${entry}`}>
-                                            <code>{entry}</code> <span style={{opacity: 0.7}}>({list})</span>{' '}
-                                            <a title='Remove this entry' onClick={() => removeExistingEntry(index, list, entry)}>
-                                                <i className='fa fa-times' />
-                                            </a>
-                                        </li>
-                                    ))
-                                )}
-                            </ul>
+            {invalidCustom.length > 0 && (
+                <p style={{color: 'red'}}>
+                    Invalid JSON pointer(s): {invalidCustom.join(', ')}. Pointers must start with <code>/</code>.
+                </p>
+            )}
+            {missingManager && <p style={{color: 'red'}}>Each managed fields manager rule needs a manager name.</p>}
+            <div className='white-box' style={{marginTop: '1em'}}>
+                <p style={{fontWeight: 'bold'}}>Existing rules</p>
+                {effectiveExistingRules.length === 0 && <p>This application has no ignore differences rules yet.</p>}
+                {effectiveExistingRules.map((rule, index) => (
+                    <div key={index} className='application-resources-diff__ignore-editor__existing-rule'>
+                        <div>
+                            <code>
+                                {rule.group || '""'}/{rule.kind}
+                                {rule.namespace ? `/${rule.namespace}` : ''}
+                                {rule.name ? `/${rule.name}` : ''}
+                            </code>{' '}
+                            <a title='Remove this rule' onClick={() => removeExistingRule(index)}>
+                                <i className='fa fa-times' /> remove rule
+                            </a>
                         </div>
-                    ))}
-                    {existingChanged && (
-                        <a
-                            onClick={() => {
-                                setExistingRules(null);
-                            }}>
-                            reset existing rule changes
-                        </a>
-                    )}
-                </div>
-                {preview && (
-                    <div className='white-box' style={{marginTop: '1em'}}>
-                        <p style={{fontWeight: 'bold'}}>Application spec preview</p>
-                        <pre>{preview}</pre>
+                        <ul>
+                            {(['jsonPointers', 'jqPathExpressions', 'managedFieldsManagers'] as const).flatMap(list =>
+                                (rule[list] || []).map(entry => (
+                                    <li key={`${list}:${entry}`}>
+                                        <code>{entry}</code> <span style={{opacity: 0.7}}>({list})</span>{' '}
+                                        <a title='Remove this entry' onClick={() => removeExistingEntry(index, list, entry)}>
+                                            <i className='fa fa-times' />
+                                        </a>
+                                    </li>
+                                ))
+                            )}
+                        </ul>
                     </div>
-                )}
+                ))}
+                {existingChanged && <a onClick={resetExisting}>reset existing rule changes</a>}
+            </div>
+            {preview && (
+                <div className='white-box' style={{marginTop: '1em'}}>
+                    <p style={{fontWeight: 'bold'}}>Application spec preview</p>
+                    <pre>{preview}</pre>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export interface IgnoreDifferencesPanelProps {
+    application: models.Application;
+    states: models.ResourceDiff[];
+    shown: boolean;
+    onClose: (saved: boolean) => void;
+    selection: Map<FieldKey, SelectedField>;
+    onSelectionChange: (selection: Map<FieldKey, SelectedField>) => void;
+}
+
+// SlidingPanel wrapper used from the DIFF tab.
+export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
+    const {application, states, shown, onClose, selection, onSelectionChange} = props;
+    const editorProps: IgnoreDifferencesEditorProps = {
+        application,
+        states,
+        selection,
+        onSelectionChange,
+        onSaved: () => onClose(true)
+    };
+    const editor = useIgnoreDifferencesEditor(editorProps);
+    return (
+        <SlidingPanel
+            isShown={shown}
+            onClose={() => onClose(false)}
+            header={
+                <div>
+                    <button className='argo-button argo-button--base' disabled={!editor.canSave} onClick={editor.save}>
+                        Save ignore differences
+                    </button>{' '}
+                    <button className='argo-button argo-button--base-o' onClick={() => onClose(false)}>
+                        Cancel
+                    </button>
+                </div>
+            }>
+            <div>
+                <h4>Ignore differences</h4>
+                <p>
+                    Select changed fields (here or directly in the diff gutter), pick a rule type per field, and save them to <code>spec.ignoreDifferences</code> of this
+                    Application. Saved rules take effect after the diff is recalculated on the next refresh.
+                </p>
+                <button className='argo-button argo-button--base-o' onClick={editor.selectSuggested}>
+                    Select suggested fields
+                </button>
+                <IgnoreDifferencesEditor {...editorProps} editor={editor} />
             </div>
         </SlidingPanel>
     );

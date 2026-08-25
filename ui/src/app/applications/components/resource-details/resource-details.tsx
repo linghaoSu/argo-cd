@@ -15,6 +15,7 @@ import {ApplicationParameters} from '../application-parameters/application-param
 import {ApplicationResourceEvents} from '../application-resource-events/application-resource-events';
 import {ResourceTreeNode} from '../application-resource-tree/application-resource-tree';
 import {ApplicationResourcesDiff} from '../application-resources-diff/application-resources-diff';
+import {ApplicationIgnoreRulesView} from '../application-resources-diff/application-ignore-rules';
 import {ApplicationSummary} from '../application-summary/application-summary';
 import {AppSetResourceNodePreview} from './appset-resource-node-preview';
 import {PodsLogsViewer} from '../pod-logs-viewer/pod-logs-viewer';
@@ -241,6 +242,13 @@ export const ResourceDetails = (props: ResourceDetailsProps) => {
                 )
             });
         }
+
+        tabs.push({
+            icon: 'fa fa-eye-slash',
+            title: 'IGNORE RULES',
+            key: 'ignore-rules',
+            content: <ApplicationIgnoreRulesView application={application} />
+        });
 
         tabs.push({
             title: 'EVENTS',
