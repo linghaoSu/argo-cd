@@ -311,3 +311,42 @@ export function buildLinePointerMap(yamlText: string): Map<number, string> {
     }
     return map;
 }
+
+// True when the rule's target selector matches the given resource. Empty group/name/namespace
+// in a rule act as wildcards, mirroring the controller's matching semantics.
+export function ruleMatchesResource(rule: models.ResourceIgnoreDifferences, state: {group?: string; kind: string; namespace?: string; name: string}): boolean {
+    if (rule.kind !== state.kind) {
+        return false;
+    }
+    if ((rule.group || '') !== '' && (rule.group || '') !== (state.group || '')) {
+        return false;
+    }
+    if ((rule.name || '') !== '' && rule.name !== state.name) {
+        return false;
+    }
+    if ((rule.namespace || '') !== '' && rule.namespace !== (state.namespace || '')) {
+        return false;
+    }
+    return true;
+}
+
+// True when the changed field at `pointer` would be ignored by the rule (only jsonPointers and
+// jq expressions convertible from pointers are evaluated; managedFieldsManagers cannot be
+// checked client-side and is treated as not covering).
+export function ruleCoversPointer(rule: models.ResourceIgnoreDifferences, pointer: string): boolean {
+    const byPointer = (rule.jsonPointers || []).some(p => pointer === p || pointer.startsWith(p + '/'));
+    if (byPointer) {
+        return true;
+    }
+    const jq = pointerToJQPath(pointer);
+    return (rule.jqPathExpressions || []).some(expr => {
+        const trimmed = expr.trim();
+        return trimmed !== '' && (jq === trimmed || jq.startsWith(trimmed + '.') || jq.startsWith(trimmed + '['));
+    });
+}
+
+// Counts how many of the changed fields of a resource are covered by the given rules.
+export function countCoveredFields(rules: models.ResourceIgnoreDifferences[], state: models.ResourceDiff, changed: ChangedPath[]): number {
+    const matching = rules.filter(rule => ruleMatchesResource(rule, state));
+    return changed.filter(path => matching.some(rule => ruleCoversPointer(rule, path.pointer))).length;
+}

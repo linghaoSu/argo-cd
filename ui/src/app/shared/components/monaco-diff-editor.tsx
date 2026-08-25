@@ -14,6 +14,8 @@ export interface MonacoDiffProps {
     selectedLines?: {original: number[]; modified: number[]};
     // fires when the user clicks a line's glyph margin / line number area
     onLineClick?: (side: 'original' | 'modified', line: number) => void;
+    // scroll this modified-side line into view when the model content changes
+    revealModifiedLine?: number;
 }
 
 const MonacoDiffEditorLazy = React.lazy(() =>
@@ -92,6 +94,9 @@ const MonacoDiffEditorLazy = React.lazy(() =>
                 const modified = monaco.editor.createModel(props.modified, props.language || 'yaml');
                 editor.setModel({original, modified});
                 decorationsRef.current = {original: [], modified: []};
+                if (props.revealModifiedLine) {
+                    editor.getModifiedEditor().revealLineInCenter(props.revealModifiedLine);
+                }
                 if (current && current.original) {
                     current.original.dispose();
                 }

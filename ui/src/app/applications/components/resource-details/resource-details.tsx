@@ -245,8 +245,9 @@ export const ResourceDetails = (props: ResourceDetailsProps) => {
 
         tabs.push({
             icon: 'fa fa-eye-slash',
-            title: 'IGNORE RULES',
+            title: 'IGNORED FIELDS',
             key: 'ignore-rules',
+            badge: (application.spec.ignoreDifferences || []).length || undefined,
             content: <ApplicationIgnoreRulesView application={application} />
         });
 
@@ -415,6 +416,9 @@ export const ResourceDetails = (props: ResourceDetailsProps) => {
             )}
             {isAppSelected && (
                 <Tabs
+                    // argo-ui Tabs copies selectedTabKey into internal state once at mount; remount on
+                    // programmatic tab changes (e.g. the DIFF tab's "Edit ignored fields" quick jump)
+                    key={`app-tabs-${tab || ''}`}
                     navTransparent={true}
                     tabs={getApplicationTabs()}
                     selectedTabKey={tab}

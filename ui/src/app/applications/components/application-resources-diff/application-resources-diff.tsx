@@ -4,6 +4,7 @@ import * as React from 'react';
 import {parseDiff} from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import {diffLines, formatLines} from 'unidiff';
+import {Context} from '../../../shared/context';
 import * as models from '../../../shared/models';
 import {services} from '../../../shared/services';
 import {buildLinePointerMap, SelectedField} from './ignore-differences';
@@ -19,6 +20,7 @@ export interface ApplicationResourcesDiffProps {
 }
 
 export const ApplicationResourcesDiff = (props: ApplicationResourcesDiffProps) => {
+    const appContext = React.useContext(Context);
     const [showIgnoreEditor, setShowIgnoreEditor] = React.useState(false);
     // fields picked either from the diff gutter or inside the editor panel
     const [selection, setSelection] = React.useState<Map<FieldKey, SelectedField>>(new Map());
@@ -103,10 +105,18 @@ ${formatLines(diffLines(i.a, i.b), {context, aname: `a/${name}}`, bname: `b/${i.
                             />
                             <label htmlFor='inlineDiff'>Inline diff</label>
                             {props.application && (
-                                <button className='argo-button argo-button--base-o' onClick={() => setShowIgnoreEditor(true)}>
-                                    <i className='fa fa-eye-slash' /> Ignore differences
-                                    {selection.size > 0 && <span className='application-resources-diff__selection-count'>{selection.size}</span>}
-                                </button>
+                                <React.Fragment>
+                                    <button className='argo-button argo-button--base-o' onClick={() => setShowIgnoreEditor(true)}>
+                                        <i className='fa fa-eye-slash' /> Ignore differences
+                                        {selection.size > 0 && <span className='application-resources-diff__selection-count'>{selection.size}</span>}
+                                    </button>
+                                    <button
+                                        className='argo-button argo-button--base-o'
+                                        title='Open the Ignored Fields editor'
+                                        onClick={() => appContext.navigation.goto('.', {tab: 'ignore-rules'}, {replace: true})}>
+                                        <i className='fa fa-external-link-alt' /> Edit ignored fields
+                                    </button>
+                                </React.Fragment>
                             )}
                         </div>
                         {files
