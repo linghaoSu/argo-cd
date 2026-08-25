@@ -85,15 +85,6 @@
     }
 }
 
-.monaco-diff-editor__selected-line {
-    background: rgba(0, 169, 194, 0.14);
-}
-.monaco-diff-editor__selected-glyph {
-    color: #00a9c2;
-    font-size: 11px;
-    margin-left: 2px;
-}
-
 .application-ignore-rules {
     display: flex;
     flex-direction: column;
@@ -280,9 +271,26 @@
     &__diff {
         flex: 1;
         min-height: 260px;
+        overflow-y: auto;
+        font-size: 10pt;
         border: 1px solid $argo-color-gray-4;
         @include themify($themes) {
             border-color: themed('border');
+        }
+    }
+    &__expander {
+        display: flex;
+        justify-content: center;
+        gap: 1.5em;
+        padding: 0.25em 0;
+        background: $argo-color-gray-3;
+        font-size: 0.85em;
+        a {
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        @include themify($themes) {
+            background: themed('light-argo-gray-2');
         }
     }
     @media (max-width: 1100px) {

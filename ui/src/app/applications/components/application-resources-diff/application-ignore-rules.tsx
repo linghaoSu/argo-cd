@@ -1,11 +1,12 @@
 import * as jsYaml from 'js-yaml';
 import * as React from 'react';
 import {useContext, useMemo, useState} from 'react';
-import {DataLoader, ErrorNotification, NotificationType} from 'argo-ui';
-import {MonacoDiffEditor} from '../../../shared/components/monaco-diff-editor';
+import {Checkbox, DataLoader, ErrorNotification, NotificationType} from 'argo-ui';
 import * as models from '../../../shared/models';
 import {Context} from '../../../shared/context';
 import {services} from '../../../shared/services';
+import {ViewPreferences} from '../../../shared/services/view-preferences-service';
+import {ExpandableResourceDiff} from './expandable-resource-diff';
 import {buildLinePointerMap, countCoveredFields, getChangedPaths, ruleMatchesResource, ChangedPath} from './ignore-differences';
 import {resourceKey} from './ignore-differences-panel';
 
@@ -36,24 +37,39 @@ interface EditableRule extends models.ResourceIgnoreDifferences {
 const emptyToUndefined = (list?: string[]) => (list && list.length > 0 ? list : undefined);
 
 // "Ignored fields" tab: a rule list on the left (like a review sidebar), the impacted
-// resources with a Monaco diff on the right; clicking a changed field adds it to the
+// resources with an expandable diff on the right; clicking a changed field adds it to the
 // active rule (issue #29330).
 export const ApplicationIgnoreRulesView = (props: ApplicationIgnoreRulesViewProps) => {
     const {application, initialResource} = props;
     return (
         <DataLoader
             key='ignore-rules'
-            load={() =>
-                services.applications.managedResources(application.metadata.name, application.metadata.namespace, {
+            load={async () => {
+                const states = await services.applications.managedResources(application.metadata.name, application.metadata.namespace, {
                     fields: ['items.normalizedLiveState', 'items.predictedLiveState', 'items.group', 'items.kind', 'items.namespace', 'items.name']
-                })
-            }>
-            {states => <IgnoreRulesLayout application={application} states={states} initialResource={initialResource} />}
+                });
+                return {states};
+            }}>
+            {(data: {states: models.ResourceDiff[]}) => (
+                <DataLoader load={() => services.viewPreferences.getPreferences()}>
+                    {pref => <IgnoreRulesLayout application={application} states={data.states} initialResource={initialResource} pref={pref} />}
+                </DataLoader>
+            )}
         </DataLoader>
     );
 };
 
-const IgnoreRulesLayout = ({application, states, initialResource}: {application: models.Application; states: models.ResourceDiff[]; initialResource?: string}) => {
+const IgnoreRulesLayout = ({
+    application,
+    states,
+    initialResource,
+    pref
+}: {
+    application: models.Application;
+    states: models.ResourceDiff[];
+    initialResource?: string;
+    pref: ViewPreferences;
+}) => {
     const appContext = useContext(Context);
 
     const resources: ResourceEntry[] = useMemo(
@@ -213,10 +229,10 @@ const IgnoreRulesLayout = ({application, states, initialResource}: {application:
         }
     };
 
-    // lines highlighted in the diff for the active resource: fields covered by any current rule
-    const highlight = useMemo(() => {
+    // pointers of the active resource covered by any current rule — these render checked/highlighted
+    const coveredPointers = useMemo(() => {
         if (!activeResource) {
-            return {original: [] as number[], modified: [] as number[]};
+            return new Set<string>();
         }
         const matching = rules.filter(rule => ruleMatchesResource(rule, activeResource.state));
         const covered = new Set(
@@ -224,36 +240,10 @@ const IgnoreRulesLayout = ({application, states, initialResource}: {application:
                 .filter(path => matching.some(rule => (rule.jsonPointers || []).some(p => path.pointer === p || path.pointer.startsWith(p + '/'))))
                 .map(p => p.pointer)
         );
-        // also highlight pointers explicitly listed in the active rule even when not changed
+        // also mark pointers explicitly listed in the active rule even when not changed
         (activeRule && ruleMatchesResource(activeRule, activeResource.state) ? activeRule.jsonPointers || [] : []).forEach(p => covered.add(p));
-        const linesFor = (map: Map<number, string>) =>
-            Array.from(map.entries())
-                .filter(([, pointer]) => covered.has(pointer))
-                .map(([line]) => line);
-        return {original: linesFor(activeResource.liveLines), modified: linesFor(activeResource.predictedLines)};
+        return covered;
     }, [activeResource, rules, activeRule]);
-
-    const onLineClick = (side: 'original' | 'modified', line: number) => {
-        if (!activeResource) {
-            return;
-        }
-        const pointer = side === 'original' ? activeResource.liveLines.get(line) : activeResource.predictedLines.get(line);
-        if (pointer) {
-            onFieldClick(activeResource, pointer);
-        }
-    };
-
-    // modified-side line of the first changed field, so the diff opens scrolled to the action
-    const firstChangedLine = useMemo(() => {
-        if (!activeResource || activeResource.changed.length === 0) {
-            return undefined;
-        }
-        const changedPointers = new Set(activeResource.changed.map(p => p.pointer));
-        const lines = Array.from(activeResource.predictedLines.entries())
-            .filter(([, pointer]) => changedPointers.has(pointer))
-            .map(([line]) => line);
-        return lines.length > 0 ? Math.min(...lines) : undefined;
-    }, [activeResource]);
 
     if (resources.length === 0) {
         return (
@@ -403,8 +393,32 @@ const IgnoreRulesLayout = ({application, states, initialResource}: {application:
                                     {activeResource.state.kind} / {activeResource.state.name}
                                 </span>
                                 <span className='application-ignore-rules__hint'>Namespace: {activeResource.state.namespace || '-'}</span>
-                                <span className='application-ignore-rules__hint'>Click a changed field's line number to add it to a rule.</span>
+                                <span className='application-ignore-rules__hint'>Use the checkbox on a changed line to add the field to a rule.</span>
                                 <span style={{flex: 1}} />
+                                <Checkbox
+                                    id='ignoreRulesCompactDiff'
+                                    checked={pref.appDetails.compactDiff}
+                                    onChange={() =>
+                                        services.viewPreferences.updatePreferences({
+                                            appDetails: {...pref.appDetails, compactDiff: !pref.appDetails.compactDiff}
+                                        })
+                                    }
+                                />
+                                <label htmlFor='ignoreRulesCompactDiff' className='application-ignore-rules__hint'>
+                                    Compact diff
+                                </label>
+                                <Checkbox
+                                    id='ignoreRulesInlineDiff'
+                                    checked={pref.appDetails.inlineDiff}
+                                    onChange={() =>
+                                        services.viewPreferences.updatePreferences({
+                                            appDetails: {...pref.appDetails, inlineDiff: !pref.appDetails.inlineDiff}
+                                        })
+                                    }
+                                />
+                                <label htmlFor='ignoreRulesInlineDiff' className='application-ignore-rules__hint'>
+                                    Inline diff
+                                </label>
                                 <button className='argo-button argo-button--base-o' onClick={selectSuggested}>
                                     Ignore suggested
                                 </button>
@@ -420,14 +434,17 @@ const IgnoreRulesLayout = ({application, states, initialResource}: {application:
                                 </div>
                             )}
                             <div className='application-ignore-rules__diff'>
-                                <MonacoDiffEditor
-                                    original={activeResource.live}
-                                    modified={activeResource.predicted}
-                                    language='yaml'
-                                    height='100%'
-                                    selectedLines={highlight}
-                                    onLineClick={onLineClick}
-                                    revealModifiedLine={firstChangedLine}
+                                <ExpandableResourceDiff
+                                    key={activeResource.key}
+                                    live={activeResource.live}
+                                    predicted={activeResource.predicted}
+                                    context={pref.appDetails.compactDiff ? 2 : Number.MAX_SAFE_INTEGER}
+                                    viewType={pref.appDetails.inlineDiff ? 'unified' : 'split'}
+                                    selection={{
+                                        pointerForLine: (side, line) => (side === 'old' ? activeResource.liveLines.get(line) : activeResource.predictedLines.get(line)),
+                                        toggle: pointer => onFieldClick(activeResource, pointer),
+                                        isSelected: pointer => coveredPointers.has(pointer)
+                                    }}
                                 />
                             </div>
                         </React.Fragment>
