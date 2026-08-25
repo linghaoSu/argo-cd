@@ -36,3 +36,51 @@
         border-bottom: 1px dashed themed('text-2');
     }
 }
+.application-resources-diff {
+    &__selection-count {
+        display: inline-block;
+        min-width: 18px;
+        margin-left: 6px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background-color: $argo-color-teal-5;
+        color: white;
+        font-size: 11px;
+        text-align: center;
+    }
+    &__gutter {
+        input[type='checkbox'] {
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+    }
+    &__ignore-editor {
+        padding: 1em;
+        pre {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        &__field {
+            margin-bottom: 0.25em;
+        }
+        &__rule-type {
+            display: inline-flex;
+            gap: 0.5em;
+            margin-left: 1.5em;
+            select,
+            input {
+                height: 2em;
+                max-width: 30em;
+            }
+        }
+        &__existing-rule {
+            margin-bottom: 0.5em;
+            ul {
+                margin: 0.25em 0 0 1.5em;
+            }
+            a {
+                cursor: pointer;
+            }
+        }
+    }
+}

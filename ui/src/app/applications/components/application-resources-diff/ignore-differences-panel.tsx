@@ -5,34 +5,66 @@ import {ErrorNotification, NotificationType, SlidingPanel} from 'argo-ui';
 import * as models from '../../../shared/models';
 import {Context} from '../../../shared/context';
 import {services} from '../../../shared/services';
-import {buildIgnoreDifference, getChangedPaths, isValidPointer, mergeIgnoreDifferences, resolvePointer, ChangedPath} from './ignore-differences';
+import {
+    buildIgnoreDifferenceForFields,
+    getChangedPaths,
+    isValidPointer,
+    mergeIgnoreDifferences,
+    pointerToJQPath,
+    resolvePointer,
+    ChangedPath,
+    IgnoreRuleType,
+    SelectedField
+} from './ignore-differences';
 
 import './application-resources-diff.scss';
+
+// key of one selectable field: `${group}/${kind}/${namespace}/${name}|${pointer}`
+export type FieldKey = string;
+
+export const resourceKey = (state: {group?: string; kind: string; namespace?: string; name: string}) => `${state.group || ''}/${state.kind}/${state.namespace || ''}/${state.name}`;
+
+export const fieldKey = (state: {group?: string; kind: string; namespace?: string; name: string}, pointer: string): FieldKey => `${resourceKey(state)}|${pointer}`;
 
 export interface IgnoreDifferencesPanelProps {
     application: models.Application;
     states: models.ResourceDiff[];
     shown: boolean;
     onClose: (saved: boolean) => void;
+    // selection lifted to the diff view so fields can also be picked from the diff gutter
+    selection: Map<FieldKey, SelectedField>;
+    onSelectionChange: (selection: Map<FieldKey, SelectedField>) => void;
 }
 
 interface ResourceGroup {
     state: models.ResourceDiff;
+    key: string;
     label: string;
     paths: ChangedPath[];
 }
 
-const pathKey = (state: models.ResourceDiff, pointer: string) => `${state.group || ''}/${state.kind}/${state.namespace || ''}/${state.name}|${pointer}`;
+// suggests a managedFields manager name from the live state when the user switches a field to managedFieldsManagers
+function suggestManager(state: models.ResourceDiff): string {
+    const managedFields = resolvePointer(state.normalizedLiveState, '/metadata/managedFields');
+    if (Array.isArray(managedFields) && managedFields.length > 0) {
+        const manager = (managedFields[managedFields.length - 1] as {manager?: string}).manager;
+        return manager || '';
+    }
+    return '';
+}
 
-// Panel that lets the user pick changed fields from the current diff and save them as
-// Application.spec.ignoreDifferences rules (issue #29330).
+// Panel that lets the user pick changed fields from the current diff, choose the rule type for each
+// field, manage existing rules, and save everything to Application.spec.ignoreDifferences (issue #29330).
 export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
-    const {application, states, shown, onClose} = props;
+    const {application, states, shown, onClose, selection, onSelectionChange} = props;
     const appContext = useContext(Context);
-    const [selected, setSelected] = useState<Set<string>>(new Set());
     const [customPointers, setCustomPointers] = useState<Map<string, string>>(new Map());
-    const [customInput, setCustomInput] = useState<{resource: string; value: string}>({resource: '', value: ''});
+    const [customInputFor, setCustomInputFor] = useState<string>('');
+    // existing rules are editable locally and written back on save
+    const [existingRules, setExistingRules] = useState<models.ResourceIgnoreDifferences[] | null>(null);
     const [saving, setSaving] = useState(false);
+
+    const effectiveExistingRules = existingRules !== null ? existingRules : application.spec.ignoreDifferences || [];
 
     const groups: ResourceGroup[] = useMemo(
         () =>
@@ -40,6 +72,7 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
                 .filter(state => !state.hook)
                 .map(state => ({
                     state,
+                    key: resourceKey(state),
                     label: `${state.kind}/${state.name}${state.namespace ? ' (' + state.namespace + ')' : ''}`,
                     paths: getChangedPaths(state)
                 }))
@@ -47,47 +80,61 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
         [states]
     );
 
-    const toggle = (key: string) => {
-        const next = new Set(selected);
-        if (next.has(key)) {
-            next.delete(key);
+    const setField = (key: FieldKey, field: SelectedField | null) => {
+        const next = new Map(selection);
+        if (field) {
+            next.set(key, field);
         } else {
-            next.add(key);
+            next.delete(key);
         }
-        setSelected(next);
+        onSelectionChange(next);
     };
 
     const selectSuggested = () => {
-        const next = new Set(selected);
-        groups.forEach(group => group.paths.filter(p => p.suggested).forEach(p => next.add(pathKey(group.state, p.pointer))));
-        setSelected(next);
+        const next = new Map(selection);
+        groups.forEach(group =>
+            group.paths
+                .filter(p => p.suggested)
+                .forEach(p => {
+                    const key = fieldKey(group.state, p.pointer);
+                    if (!next.has(key)) {
+                        next.set(key, {pointer: p.pointer, ruleType: 'jsonPointers'});
+                    }
+                })
+        );
+        onSelectionChange(next);
     };
 
     const buildRules = (): models.ResourceIgnoreDifferences[] => {
-        let rules = application.spec.ignoreDifferences || [];
+        let rules = [...effectiveExistingRules];
         groups.forEach(group => {
-            const pointers = group.paths.map(p => p.pointer).filter(pointer => selected.has(pathKey(group.state, pointer)));
-            const groupId = `${group.state.group || ''}/${group.state.kind}/${group.state.namespace || ''}/${group.state.name}`;
-            const custom = (customPointers.get(groupId) || '')
+            const fields: SelectedField[] = group.paths.map(p => selection.get(fieldKey(group.state, p.pointer))).filter((f): f is SelectedField => !!f);
+            const custom = (customPointers.get(group.key) || '')
                 .split('\n')
                 .map(v => v.trim())
-                .filter(v => v !== '');
-            const all = [...pointers, ...custom];
+                .filter(v => v !== '')
+                .map((pointer): SelectedField => ({pointer, ruleType: 'jsonPointers'}));
+            const all = [...fields, ...custom];
             if (all.length > 0) {
-                rules = mergeIgnoreDifferences(rules, buildIgnoreDifference(group.state, all));
+                rules = mergeIgnoreDifferences(rules, buildIgnoreDifferenceForFields(group.state, all));
             }
         });
         return rules;
     };
 
-    const selectedCount = selected.size + Array.from(customPointers.values()).filter(v => v.trim() !== '').length;
+    const customCount = Array.from(customPointers.values())
+        .flatMap(v => v.split('\n'))
+        .filter(v => v.trim() !== '').length;
+    const selectedCount = selection.size + customCount;
     const invalidCustom = Array.from(customPointers.values())
         .flatMap(v => v.split('\n'))
         .map(v => v.trim())
         .filter(v => v !== '' && !isValidPointer(v));
+    const missingManager = Array.from(selection.values()).some(f => f.ruleType === 'managedFieldsManagers' && !(f.manager || '').trim());
+    const existingChanged = existingRules !== null;
 
     const preview = useMemo(() => {
-        if (selectedCount === 0) {
+        if (selectedCount === 0 && !existingChanged) {
             return '';
         }
         try {
@@ -96,7 +143,7 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
             return '';
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selected, customPointers, groups, application]);
+    }, [selection, customPointers, groups, application, existingRules]);
 
     const save = async () => {
         setSaving(true);
@@ -105,11 +152,12 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
             spec.ignoreDifferences = buildRules();
             await services.applications.updateSpec(application.metadata.name, application.metadata.namespace, spec);
             appContext.notifications.show({
-                content: `Saved ${selectedCount} ignore differences rule field(s). Refresh the application to recalculate the diff.`,
+                content: 'Saved ignore differences rules. Refresh the application to recalculate the diff.',
                 type: NotificationType.Success
             });
-            setSelected(new Set());
+            onSelectionChange(new Map());
             setCustomPointers(new Map());
+            setExistingRules(null);
             onClose(true);
         } catch (e) {
             appContext.notifications.show({
@@ -121,13 +169,36 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
         }
     };
 
+    const removeExistingRule = (index: number) => {
+        const next = [...effectiveExistingRules];
+        next.splice(index, 1);
+        setExistingRules(next);
+    };
+
+    const removeExistingEntry = (index: number, list: 'jsonPointers' | 'jqPathExpressions' | 'managedFieldsManagers', entry: string) => {
+        const next = effectiveExistingRules.map((rule, i) => {
+            if (i !== index) {
+                return rule;
+            }
+            const updated = {...rule, [list]: (rule[list] || []).filter(v => v !== entry)};
+            if ((updated[list] || []).length === 0) {
+                delete updated[list];
+            }
+            return updated;
+        });
+        // drop rules that no longer ignore anything
+        setExistingRules(next.filter(rule => (rule.jsonPointers || []).length > 0 || (rule.jqPathExpressions || []).length > 0 || (rule.managedFieldsManagers || []).length > 0));
+    };
+
+    const canSave = !saving && (selectedCount > 0 || existingChanged) && invalidCustom.length === 0 && !missingManager;
+
     return (
         <SlidingPanel
             isShown={shown}
             onClose={() => onClose(false)}
             header={
                 <div>
-                    <button className='argo-button argo-button--base' disabled={saving || selectedCount === 0 || invalidCustom.length > 0} onClick={save}>
+                    <button className='argo-button argo-button--base' disabled={!canSave} onClick={save}>
                         Save ignore differences
                     </button>{' '}
                     <button className='argo-button argo-button--base-o' onClick={() => onClose(false)}>
@@ -138,49 +209,124 @@ export const IgnoreDifferencesPanel = (props: IgnoreDifferencesPanelProps) => {
             <div className='application-resources-diff__ignore-editor'>
                 <h4>Ignore differences</h4>
                 <p>
-                    Select the changed fields to add to <code>spec.ignoreDifferences</code> of this Application. Saved rules take effect after the diff is recalculated on the next
-                    refresh.
+                    Select changed fields (here or directly in the diff gutter), pick a rule type per field, and save them to <code>spec.ignoreDifferences</code> of this
+                    Application. Saved rules take effect after the diff is recalculated on the next refresh.
                 </p>
                 <button className='argo-button argo-button--base-o' onClick={selectSuggested}>
                     Select suggested fields
                 </button>
                 {groups.length === 0 && <p>No field-level differences detected.</p>}
-                {groups.map(group => {
-                    const groupId = `${group.state.group || ''}/${group.state.kind}/${group.state.namespace || ''}/${group.state.name}`;
-                    return (
-                        <div key={groupId} className='white-box' style={{marginTop: '1em'}}>
-                            <p style={{fontWeight: 'bold'}}>{group.label}</p>
-                            {group.paths.map(path => {
-                                const key = pathKey(group.state, path.pointer);
-                                const liveValue = resolvePointer(group.state.normalizedLiveState, path.pointer);
-                                return (
-                                    <div key={key} style={{marginBottom: '0.25em'}}>
-                                        <label>
-                                            <input type='checkbox' checked={selected.has(key)} onChange={() => toggle(key)} /> <code>{path.pointer}</code>
-                                            {path.suggested && <span title='Commonly controller-managed field'> ★</span>}
-                                            {liveValue !== undefined && <span style={{opacity: 0.7}}> (live: {JSON.stringify(liveValue)})</span>}
-                                        </label>
-                                    </div>
-                                );
-                            })}
-                            {customInput.resource === groupId ? (
-                                <textarea
-                                    className='argo-field'
-                                    placeholder='/spec/some/path (one JSON pointer per line)'
-                                    value={customPointers.get(groupId) || ''}
-                                    onChange={e => setCustomPointers(new Map(customPointers).set(groupId, e.target.value))}
-                                />
-                            ) : (
-                                <a onClick={() => setCustomInput({resource: groupId, value: ''})}>+ add custom JSON pointer</a>
-                            )}
-                        </div>
-                    );
-                })}
+                {groups.map(group => (
+                    <div key={group.key} className='white-box' style={{marginTop: '1em'}}>
+                        <p style={{fontWeight: 'bold'}}>{group.label}</p>
+                        {group.paths.map(path => {
+                            const key = fieldKey(group.state, path.pointer);
+                            const field = selection.get(key);
+                            const liveValue = resolvePointer(group.state.normalizedLiveState, path.pointer);
+                            return (
+                                <div key={key} className='application-resources-diff__ignore-editor__field'>
+                                    <label>
+                                        <input type='checkbox' checked={!!field} onChange={() => setField(key, field ? null : {pointer: path.pointer, ruleType: 'jsonPointers'})} />{' '}
+                                        <code>{path.pointer}</code>
+                                        {path.suggested && <span title='Commonly controller-managed field'> ★</span>}
+                                        {liveValue !== undefined && <span style={{opacity: 0.7}}> (live: {JSON.stringify(liveValue)})</span>}
+                                    </label>
+                                    {field && (
+                                        <span className='application-resources-diff__ignore-editor__rule-type'>
+                                            <select
+                                                className='argo-field'
+                                                value={field.ruleType}
+                                                onChange={e => {
+                                                    const ruleType = e.target.value as IgnoreRuleType;
+                                                    setField(key, {
+                                                        ...field,
+                                                        ruleType,
+                                                        manager: ruleType === 'managedFieldsManagers' ? field.manager || suggestManager(group.state) : field.manager,
+                                                        jqExpression: ruleType === 'jqPathExpressions' ? field.jqExpression || pointerToJQPath(path.pointer) : field.jqExpression
+                                                    });
+                                                }}>
+                                                <option value='jsonPointers'>JSON pointer</option>
+                                                <option value='jqPathExpressions'>JQ expression</option>
+                                                <option value='managedFieldsManagers'>Managed fields manager</option>
+                                            </select>
+                                            {field.ruleType === 'jqPathExpressions' && (
+                                                <input
+                                                    className='argo-field'
+                                                    value={field.jqExpression || ''}
+                                                    title='JQ path expression'
+                                                    onChange={e => setField(key, {...field, jqExpression: e.target.value})}
+                                                />
+                                            )}
+                                            {field.ruleType === 'managedFieldsManagers' && (
+                                                <input
+                                                    className='argo-field'
+                                                    value={field.manager || ''}
+                                                    placeholder='manager name, e.g. kube-controller-manager'
+                                                    title='Field manager whose managed fields should be ignored'
+                                                    onChange={e => setField(key, {...field, manager: e.target.value})}
+                                                />
+                                            )}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {customInputFor === group.key ? (
+                            <textarea
+                                className='argo-field'
+                                placeholder='/spec/some/path (one JSON pointer per line)'
+                                value={customPointers.get(group.key) || ''}
+                                onChange={e => setCustomPointers(new Map(customPointers).set(group.key, e.target.value))}
+                            />
+                        ) : (
+                            <a onClick={() => setCustomInputFor(group.key)}>+ add custom JSON pointer</a>
+                        )}
+                    </div>
+                ))}
                 {invalidCustom.length > 0 && (
                     <p style={{color: 'red'}}>
                         Invalid JSON pointer(s): {invalidCustom.join(', ')}. Pointers must start with <code>/</code>.
                     </p>
                 )}
+                {missingManager && <p style={{color: 'red'}}>Each managed fields manager rule needs a manager name.</p>}
+                <div className='white-box' style={{marginTop: '1em'}}>
+                    <p style={{fontWeight: 'bold'}}>Existing rules</p>
+                    {effectiveExistingRules.length === 0 && <p>This application has no ignore differences rules yet.</p>}
+                    {effectiveExistingRules.map((rule, index) => (
+                        <div key={index} className='application-resources-diff__ignore-editor__existing-rule'>
+                            <div>
+                                <code>
+                                    {rule.group || '""'}/{rule.kind}
+                                    {rule.namespace ? `/${rule.namespace}` : ''}
+                                    {rule.name ? `/${rule.name}` : ''}
+                                </code>{' '}
+                                <a title='Remove this rule' onClick={() => removeExistingRule(index)}>
+                                    <i className='fa fa-times' /> remove rule
+                                </a>
+                            </div>
+                            <ul>
+                                {(['jsonPointers', 'jqPathExpressions', 'managedFieldsManagers'] as const).flatMap(list =>
+                                    (rule[list] || []).map(entry => (
+                                        <li key={`${list}:${entry}`}>
+                                            <code>{entry}</code> <span style={{opacity: 0.7}}>({list})</span>{' '}
+                                            <a title='Remove this entry' onClick={() => removeExistingEntry(index, list, entry)}>
+                                                <i className='fa fa-times' />
+                                            </a>
+                                        </li>
+                                    ))
+                                )}
+                            </ul>
+                        </div>
+                    ))}
+                    {existingChanged && (
+                        <a
+                            onClick={() => {
+                                setExistingRules(null);
+                            }}>
+                            reset existing rule changes
+                        </a>
+                    )}
+                </div>
                 {preview && (
                     <div className='white-box' style={{marginTop: '1em'}}>
                         <p style={{fontWeight: 'bold'}}>Application spec preview</p>
