@@ -143,3 +143,68 @@
     font-size: 11px;
     margin-left: 2px;
 }
+
+.application-ignore-rules {
+    &__modes {
+        display: inline-flex;
+        border: 1px solid $argo-color-gray-4;
+        border-radius: 3px;
+        overflow: hidden;
+        @include themify($themes) {
+            border-color: themed('border');
+        }
+    }
+    &__mode {
+        border: 0;
+        background: transparent;
+        padding: 0.35em 0.8em;
+        font-size: 0.85em;
+        cursor: pointer;
+        color: $argo-color-gray-7;
+        @include themify($themes) {
+            color: themed('text-2');
+        }
+        & + & {
+            border-left: 1px solid $argo-color-gray-4;
+        }
+        &--active {
+            background: $argo-color-teal-5;
+            color: white !important;
+        }
+    }
+    &__diffs {
+        min-width: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75em;
+    }
+    &__diff-section {
+        border: 1px solid $argo-color-gray-4;
+        @include themify($themes) {
+            border-color: themed('border');
+        }
+    }
+    &__diff-header {
+        display: flex;
+        align-items: center;
+        gap: 0.6em;
+        padding: 0.45em 0.8em;
+        cursor: pointer;
+        user-select: none;
+        background: $argo-color-gray-2;
+        @include themify($themes) {
+            background: themed('light-argo-gray-2');
+        }
+    }
+    &__diff-title {
+        font-weight: 600;
+    }
+    &__diff-meta {
+        color: $argo-color-gray-6;
+        font-size: 0.85em;
+        @include themify($themes) {
+            color: themed('text-2');
+        }
+    }
+}
