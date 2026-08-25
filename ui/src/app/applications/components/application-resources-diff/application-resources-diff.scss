@@ -208,3 +208,16 @@
         }
     }
 }
+
+.application-ignore-rules {
+    &__diff-section--single {
+        flex: 1;
+        min-height: 320px;
+        display: flex;
+        flex-direction: column;
+        .application-ignore-rules__diff {
+            flex: 1;
+            min-height: 0;
+        }
+    }
+}

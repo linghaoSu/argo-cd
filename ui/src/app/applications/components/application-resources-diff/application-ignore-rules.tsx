@@ -212,8 +212,9 @@ const IgnoreRulesLayout = ({application, states}: {application: models.Applicati
                     {visibleItems.map(item => {
                         const isCollapsed = visibleItems.length > 1 && collapsed.has(item.key);
                         const selectedCount = selectionCountFor(item);
+                        const single = visibleItems.length === 1;
                         return (
-                            <div key={item.key} className='application-ignore-rules__diff-section'>
+                            <div key={item.key} className={'application-ignore-rules__diff-section' + (single ? ' application-ignore-rules__diff-section--single' : '')}>
                                 {(visibleItems.length > 1 || mode !== 'resource') && (
                                     <div className='application-ignore-rules__diff-header' onClick={() => toggleCollapsed(item.key)}>
                                         <i className={`fa fa-caret-${isCollapsed ? 'right' : 'down'}`} />
@@ -225,7 +226,7 @@ const IgnoreRulesLayout = ({application, states}: {application: models.Applicati
                                     </div>
                                 )}
                                 {!isCollapsed && (
-                                    <div className='application-ignore-rules__diff' style={{height: visibleItems.length > 1 ? 360 : 'calc(100vh - 320px)', minHeight: 320}}>
+                                    <div className='application-ignore-rules__diff' style={single ? undefined : {height: 360}}>
                                         <MonacoDiffEditor
                                             original={item.live}
                                             modified={item.predicted}
