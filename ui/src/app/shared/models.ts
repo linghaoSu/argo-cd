@@ -362,12 +362,13 @@ export interface ApplicationSpec {
 }
 
 export interface ResourceIgnoreDifferences {
-    group: string;
+    group?: string;
     kind: string;
-    name: string;
-    namespace: string;
-    jsonPointers: string[];
-    jqPathExpressions: string[];
+    name?: string;
+    namespace?: string;
+    jsonPointers?: string[];
+    jqPathExpressions?: string[];
+    managedFieldsManagers?: string[];
 }
 
 /**

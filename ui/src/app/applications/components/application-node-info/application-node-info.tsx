@@ -333,7 +333,7 @@ export const ApplicationNodeInfo = (props: {
             key: 'diff',
             icon: 'fa fa-file-medical',
             title: 'Diff',
-            content: <ApplicationResourcesDiff states={[props.controlled.state]} />
+            content: <ApplicationResourcesDiff states={[props.controlled.state]} application={props.application} />
         });
         tabs.push({
             key: 'desiredManifest',
