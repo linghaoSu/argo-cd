@@ -2,6 +2,7 @@ import {Tooltip} from 'argo-ui';
 import {Boundary, Placement} from 'popper.js';
 import {useData} from 'argo-ui/v2';
 import * as React from 'react';
+import {useTranslation} from 'react-i18next';
 import {Context} from '../shared/context';
 import {services, ViewPreferences} from '../shared/services';
 
@@ -31,6 +32,7 @@ export const useSidebarTarget = () => {
 
 export const Sidebar = (props: SidebarProps) => {
     const context = React.useContext(Context);
+    const {t} = useTranslation();
     const [version, loading, error] = useData(() => services.version.version());
     const locationPath = context.history.location.pathname;
 
@@ -56,17 +58,23 @@ export const Sidebar = (props: SidebarProps) => {
                         <div className='sidebar__logo-container'>
                             <img
                                 onClick={() => context.history.push('/')}
-                                title={'Go to start page'}
+                                title={t('Go to start page')}
                                 src='assets/images/argologo.svg'
                                 alt='Argo'
                                 className='sidebar__logo__text-logo'
                             />
                             <div className='sidebar__version' onClick={props.onVersionClick}>
-                                {loading ? 'Loading...' : error?.state ? 'Unknown' : version?.Version || 'Unknown'}
+                                {loading ? t('Loading...') : error?.state ? t('Unknown') : version?.Version || t('Unknown')}
                             </div>
                         </div>
                     )}
-                    <img onClick={() => context.history.push('/')} title={'Go to start page'} src='assets/images/logo.png' alt='Argo' className='sidebar__logo__character' />{' '}
+                    <img
+                        onClick={() => context.history.push('/')}
+                        title={t('Go to start page')}
+                        src='assets/images/logo.png'
+                        alt='Argo'
+                        className='sidebar__logo__character'
+                    />{' '}
                 </div>
 
                 <nav aria-label='Main'>
@@ -78,11 +86,11 @@ export const Sidebar = (props: SidebarProps) => {
                             const active = locationPath === item.path || locationPath.startsWith(`${item.path}/`);
                             return (
                                 <li key={item.path} className='sidebar__nav-li'>
-                                    <Tooltip content={<div className='sidebar__tooltip'>{item?.tooltip || item.title}</div>} {...tooltipProps}>
+                                    <Tooltip content={<div className='sidebar__tooltip'>{t(item?.tooltip || item.title)}</div>} {...tooltipProps}>
                                         <a
                                             href={href}
                                             // The title text is hidden when collapsed, so name the link explicitly for screen readers.
-                                            aria-label={item.title}
+                                            aria-label={t(item.title)}
                                             aria-current={active ? 'page' : undefined}
                                             className={`sidebar__nav-item ${active ? 'sidebar__nav-item--active' : ''}`}
                                             onClick={e => {
@@ -94,7 +102,7 @@ export const Sidebar = (props: SidebarProps) => {
                                                 context.history.push(item.path);
                                             }}>
                                             <i className={item?.iconClassName || ''} />
-                                            {!props.pref.hideSidebar && item.title}
+                                            {!props.pref.hideSidebar && t(item.title)}
                                         </a>
                                     </Tooltip>
                                 </li>
@@ -103,10 +111,10 @@ export const Sidebar = (props: SidebarProps) => {
 
                         {props.pref.hideSidebar && (
                             <li className='sidebar__nav-li'>
-                                <Tooltip content='Show Filters' {...tooltipProps}>
+                                <Tooltip content={t('Show Filters')} {...tooltipProps}>
                                     <button
                                         type='button'
-                                        aria-label='Show Filters'
+                                        aria-label={t('Show Filters')}
                                         onClick={() => services.viewPreferences.updatePreferences({...props.pref, hideSidebar: !props.pref.hideSidebar})}
                                         className='sidebar__nav-item sidebar__filter-button'>
                                         <div>

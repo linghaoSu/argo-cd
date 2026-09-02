@@ -1,10 +1,11 @@
 import * as React from 'react';
 import * as minimatch from 'minimatch';
 
+import i18next from '../../i18n';
 import {Application, ApplicationTree, State} from '../models';
 
-type ExtensionsEventType = 'resource' | 'systemLevel' | 'appView' | 'statusPanel' | 'topBar';
-type ExtensionsType = ResourceTabExtension | SystemLevelExtension | AppViewExtension | StatusPanelExtension | TopBarActionMenuExt;
+type ExtensionsEventType = 'resource' | 'systemLevel' | 'appView' | 'statusPanel' | 'topBar' | 'language';
+type ExtensionsType = ResourceTabExtension | SystemLevelExtension | AppViewExtension | StatusPanelExtension | TopBarActionMenuExt | LanguagePack;
 
 class ExtensionsEventTarget {
     private listeners: Map<ExtensionsEventType, Array<(extension: ExtensionsType) => void>> = new Map();
@@ -35,7 +36,8 @@ const extensions = {
     systemLevelExtensions: new Array<SystemLevelExtension>(),
     appViewExtensions: new Array<AppViewExtension>(),
     statusPanelExtensions: new Array<StatusPanelExtension>(),
-    topBarActionMenuExts: new Array<TopBarActionMenuExt>()
+    topBarActionMenuExts: new Array<TopBarActionMenuExt>(),
+    languages: new Array<LanguagePack>()
 };
 
 function registerResourceExtension(component: ExtensionComponent, group: string, kind: string, tabTitle: string, opts?: {icon: string}) {
@@ -74,6 +76,20 @@ function registerTopBarActionMenuExt(
     const ext = {component, flyout, shouldDisplay, title, id, iconClassName, isMiddle};
     extensions.topBarActionMenuExts.push(ext);
     extensions.eventTarget.emit('topBar', ext);
+}
+
+function registerLanguage(pack: LanguagePack) {
+    if (!pack || typeof pack.code !== 'string' || !pack.code || typeof pack.resources !== 'object' || pack.resources === null) {
+        throw new Error('registerLanguage: a pack must have a non-empty `code` and a `resources` object');
+    }
+    i18next.addResourceBundle(pack.code, 'translation', pack.resources, true, true);
+    const existing = extensions.languages.findIndex(l => l.code === pack.code);
+    if (existing >= 0) {
+        extensions.languages[existing] = pack;
+    } else {
+        extensions.languages.push(pack);
+    }
+    extensions.eventTarget.emit('language', pack);
 }
 
 let legacyInitialized = false;
@@ -128,6 +144,17 @@ export interface TopBarActionMenuExt {
     iconClassName?: string;
     isMiddle?: boolean;
     isNarrow?: boolean;
+}
+
+export interface LanguagePack {
+    /** BCP 47 language tag, e.g. 'zh-CN' or 'ko'. Used as the i18next language and the moment locale. */
+    code: string;
+    /** Display name in the language itself, shown in the language selector, e.g. '简体中文'. */
+    name: string;
+    /** Flat map of English source string -> translation. */
+    resources: {[key: string]: string};
+    /** Argo CD version the pack was built against, e.g. 'v3.4'. Informational only. */
+    argocdVersion?: string;
 }
 
 export type ExtensionComponent = React.ComponentType<ExtensionComponentProps>;
@@ -203,6 +230,10 @@ export class ExtensionsService {
     public getActionMenuExtensions(): TopBarActionMenuExt[] {
         return extensions.topBarActionMenuExts.slice();
     }
+
+    public getLanguages(): LanguagePack[] {
+        return extensions.languages.slice();
+    }
 }
 
 ((window: any) => {
@@ -213,6 +244,7 @@ export class ExtensionsService {
         registerSystemLevelExtension,
         registerAppViewExtension,
         registerStatusPanelExtension,
-        registerTopBarActionMenuExt
+        registerTopBarActionMenuExt,
+        registerLanguage
     };
 })(window);

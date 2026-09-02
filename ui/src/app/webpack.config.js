@@ -207,6 +207,9 @@ const config = {
             }
         },
         proxy: [
+            // Optionally serve extensions.js from a different origin than the API (e.g. a local language pack
+            // while pointing ARGOCD_API_URL at a remote instance).
+            ...(process.env.ARGOCD_EXTENSIONS_URL ? [{context: ['/extensions.js'], target: process.env.ARGOCD_EXTENSIONS_URL}] : []),
             {
                 context: ['/extensions', '/api', '/auth', '/swagger-ui', '/swagger.json', '/download'],
                 ...proxyConf

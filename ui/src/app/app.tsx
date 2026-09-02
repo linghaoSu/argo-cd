@@ -4,12 +4,14 @@ import * as React from 'react';
 import {Helmet} from 'react-helmet';
 import {Redirect, Route, RouteComponentProps, Router, Switch} from 'react-router';
 import {Subscription} from 'rxjs';
+import './i18n';
 import applications from './applications';
 import resources from './resources';
 import help from './help';
 import login from './login';
 import settings from './settings';
 import {Layout, ThemeWrapper} from './shared/components/layout/layout';
+import {LanguageSync} from './shared/components/language-selector/language-selector';
 import {Page} from './shared/components';
 import {Spinner} from './shared/components';
 import {VersionPanel} from './shared/components/version-info/version-info-panel';
@@ -298,7 +300,12 @@ export class App extends React.Component<
                         */}
                         <AppContextReact.Provider value={appContext}>
                             <DataLoader load={() => services.viewPreferences.getPreferences()}>
-                                {pref => <ThemeWrapper theme={pref.theme}>{this.state.popupProps && <Popup {...this.state.popupProps} />}</ThemeWrapper>}
+                                {pref => (
+                                    <>
+                                        <LanguageSync pref={pref} />
+                                        <ThemeWrapper theme={pref.theme}>{this.state.popupProps && <Popup {...this.state.popupProps} />}</ThemeWrapper>
+                                    </>
+                                )}
                             </DataLoader>
                             <AuthSettingsCtx.Provider value={this.state.authSettings}>
                                 <Router history={history}>

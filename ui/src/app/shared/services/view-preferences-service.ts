@@ -173,6 +173,8 @@ export interface ViewPreferences {
     hideSidebar: boolean;
     position: string;
     theme: string;
+    // UI language code as registered by a language pack ('en' when none is selected).
+    language?: string;
     // Per-application notice dismissals, keyed by namespaced app + content hash.
     // See application-notice/notice.ts (dismissalKey).
     dismissedNotices?: {[key: string]: boolean};
@@ -247,6 +249,7 @@ const DEFAULT_PREFERENCES: ViewPreferences = {
     hideSidebar: false,
     position: '',
     theme: 'auto',
+    language: 'en',
     dismissedNotices: {}
 };
 
